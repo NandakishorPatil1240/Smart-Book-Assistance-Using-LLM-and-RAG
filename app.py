@@ -19,6 +19,10 @@ st.write("Upload a PDF and ask questions from the document")
 
 uploaded_file = st.file_uploader("Upload a PDF book", type="pdf")
 
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 10000))  
+    uvicorn.run("main:app", host="0.0.0.0", port=port)  
 
 if uploaded_file:
 
