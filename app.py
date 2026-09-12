@@ -2,13 +2,13 @@ import streamlit as st
 from dotenv import load_dotenv
 import tempfile
 import os
+import gc
 
-from langchain_community.document_loaders import PyPDFLoader
+from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import ChatPromptTemplate
-
 
 load_dotenv()
 
@@ -17,93 +17,85 @@ st.set_page_config(page_title="RAG Book Assistant")
 st.title("📚 RAG Book Assistant")
 st.write("Upload a PDF and ask questions from the document")
 
+# Cached Embedding Object (Mule repeated initialization cha RAM vaachel)
+@st.cache_resource
+def get_embeddings():
+    return MistralAIEmbeddings(model="mistral-embed")
+
+embeddings = get_embeddings()
+
 uploaded_file = st.file_uploader("Upload a PDF book", type="pdf")
 
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 10000))  
-    uvicorn.run("main:app", host="0.0.0.0", port=port)  
-
 if uploaded_file:
-
-    with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         tmp_file.write(uploaded_file.read())
         file_path = tmp_file.name
 
     st.success("PDF uploaded successfully!")
 
     if st.button("Create Vector Database"):
+        with st.spinner("Processing document efficiently..."):
+            # 1. Lightweight PDF Text Extraction
+            reader = PdfReader(file_path)
+            raw_text = ""
+            for page in reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    raw_text += extracted + "\n"
 
-        with st.spinner("Processing document..."):
+            # Temp file delete kara
+            if os.path.exists(file_path):
+                os.remove(file_path)
 
-            loader = PyPDFLoader(file_path)
-            docs = loader.load()
-
+            # 2. Text Chunking
             splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200
+                chunk_size=500,       # Chunk size 1000 varun 500 keli RAM bachavnyasathi
+                chunk_overlap=50
             )
+            chunks = splitter.split_text(raw_text)
 
-            chunks = splitter.split_documents(docs)
+            # Clean raw text from memory
+            del raw_text
+            gc.collect()
 
-            embeddings = MistralAIEmbeddings(
-                model="mistral-embed"
-            )
-
-            vectorstore = Chroma.from_documents(
-                documents=chunks,
+            # 3. Create Chroma Vectorstore
+            vectorstore = Chroma.from_texts(
+                texts=chunks,
                 embedding=embeddings,
                 persist_directory="chroma_db"
             )
 
-            vectorstore.persist()
+            del chunks
+            gc.collect()
 
-        st.success("Vector database created!")
+        st.success("Vector database created successfully!")
 
-
-
+# Ask Question Logic
 if os.path.exists("chroma_db"):
-
-    embeddings = MistralAIEmbeddings(
-        model="mistral-embed"
-    )
-
     vectorstore = Chroma(
         persist_directory="chroma_db",
         embedding_function=embeddings
     )
 
     retriever = vectorstore.as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k":4,
-            "fetch_k":10,
-            "lambda_mult":0.5
-        }
+        search_type="similarity", # MMR multi-search algorithm peksha similarity light aste
+        search_kwargs={"k": 3}
     )
 
-    llm = ChatMistralAI(model="mistral-small-2506")
+    llm = ChatMistralAI(model="mistral-small-latest")
 
     prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 """You are a helpful AI assistant.
-
 Use ONLY the provided context to answer the question.
-
-If the answer is not present in the context,
-say: "I could not find the answer in the document."
+If the answer is not present in the context, say: "I could not find the answer in the document."
 """
             ),
             (
                 "human",
-                """Context:
-{context}
-
-Question:
-{question}
-"""
+                "Context:\n{context}\n\nQuestion:\n{question}"
             )
         ]
     )
@@ -114,19 +106,17 @@ Question:
     query = st.text_input("Enter your question")
 
     if query:
+        with st.spinner("Searching and generating response..."):
+            docs = retriever.invoke(query)
 
-        docs = retriever.invoke(query)
+            context = "\n\n".join([doc.page_content for doc in docs])
 
-        context = "\n\n".join(
-            [doc.page_content for doc in docs]
-        )
+            final_prompt = prompt.invoke({
+                "context": context,
+                "question": query
+            })
 
-        final_prompt = prompt.invoke({
-            "context": context,
-            "question": query
-        })
+            response = llm.invoke(final_prompt)
 
-        response = llm.invoke(final_prompt)
-
-        st.write("### AI Answer")
-        st.write(response.content)
+            st.write("### AI Answer")
+            st.write(response.content)
