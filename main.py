@@ -1,31 +1,35 @@
+import os
+import gc
 from dotenv import load_dotenv
+
+# Lightweight packages
 from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma  # Community import aevaji direct langchain_chroma
 from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
+# 1. Initialize Embeddings
 embedding_model = MistralAIEmbeddings(
     model="mistral-embed"
 )
 
+# 2. Load Vectorstore (ChromaDB)
 vectorstore = Chroma(
     persist_directory="chroma_db",
     embedding_function=embedding_model
 )
 
+# 3. Memory-friendly Similarity Retriever (MMR aevaji similarity)
 retriever = vectorstore.as_retriever(
-    search_type="mmr",
-    search_kwargs={
-        "k": 4,
-        "fetch_k": 10,
-        "lambda_mult": 0.5
-    }
+    search_type="similarity",
+    search_kwargs={"k": 3}  # Top 3 chunks kafi ahet RAM save karnyasathi
 )
 
-llm = ChatMistralAI(model="mistral-small-2506")
+# 4. Initialize LLM Model
+llm = ChatMistralAI(model="mistral-small-latest")
 
-# prompt template
+# 5. Prompt Template Setup
 prompt = ChatPromptTemplate.from_messages(
     [
         (
@@ -50,28 +54,42 @@ Question:
     ]
 )
 
-print("RAG system created")
-
+print("RAG system created successfully!")
 print("Press 0 to exit")
 
+# 6. Optimized Loop
 while True:
-    query = input("You: ")
+    try:
+        query = input("\nYou: ").strip()
 
-    if query == "0":
-        break
+        if query == "0":
+            print("Exiting...")
+            break
 
-    docs = retriever.invoke(query)
+        if not query:
+            continue
 
-    context = "\n\n".join(
-        [doc.page_content for doc in docs]
-    )
+        # Document Retrieval
+        docs = retriever.invoke(query)
 
-    final_prompt = prompt.invoke({
-        "context": context,
-        "question": query
-    })
+        context = "\n\n".join([doc.page_content for doc in docs])
 
-    response = llm.invoke(final_prompt)
+        # Prompt Creation & LLM Call
+        final_prompt = prompt.invoke({
+            "context": context,
+            "question": query
+        })
 
-    print(f"\nAI: {response.content}")          
- 
+        response = llm.invoke(final_prompt)
+
+        print(f"\nAI: {response.content}")
+
+        # Explicit Memory Cleanup inside continuous loop
+        del docs
+        del context
+        del final_prompt
+        del response
+        gc.collect()
+
+    except Exception as e:
+        print(f"\nError occurred: {str(e)}")
