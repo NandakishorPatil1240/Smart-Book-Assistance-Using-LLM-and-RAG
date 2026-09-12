@@ -4,36 +4,45 @@ from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_mistralai import MistralAIEmbeddings
 from langchain_chroma import Chroma
+from dotenv import load_dotenv
 
-# Embedding Model with Retry Logic (Fixes 429 Error)
+load_dotenv()
+
 def get_embeddings():
+    # 429 Rate Limit error saṭhi max_retries=5 add kela ahe
     return MistralAIEmbeddings(
         model="mistral-embed",
-        max_retries=5  # 429 Rate Limit error pasun vachavnyasathi
+        max_retries=5
     )
 
-# PDF Processing and Vector Store Creation
-def create_vector_db(file_path, db_path="chroma_db"):
-    # 1. Read PDF Text (pypdf - Lightweight)
-    reader = PdfReader(file_path)
+def build_vector_db(pdf_path, db_path="chroma_db"):
+    """
+    PDF read karun text chunks banvto ani Chroma Vector Database create karto.
+    """
+    print(f"Reading PDF: {pdf_path}...")
+    
+    # 1. Lightweight PDF Extraction (pypdf - No Deprecation Warning)
+    reader = PdfReader(pdf_path)
     raw_text = ""
     for page in reader.pages:
         extracted = page.extract_text()
         if extracted:
             raw_text += extracted + "\n"
 
-    # 2. Text Chunking
+    # 2. Text Chunking (RAM Save Karnyasathi chunk_size=500)
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=500,
         chunk_overlap=50
     )
     chunks = splitter.split_text(raw_text)
 
-    # Free raw text memory
+    # Memory Cleanup
     del raw_text
     gc.collect()
 
-    # 3. Save to Chroma VectorDB
+    print(f"Total chunks created: {len(chunks)}. Storing in Vector DB...")
+
+    # 3. Create Chroma Vector Store
     embeddings = get_embeddings()
     vectorstore = Chroma.from_texts(
         texts=chunks,
@@ -43,10 +52,14 @@ def create_vector_db(file_path, db_path="chroma_db"):
 
     del chunks
     gc.collect()
+    
+    print("Vector database successfully created!")
     return vectorstore
 
-# Load existing Vector DB
 def load_vector_db(db_path="chroma_db"):
+    """
+    Existing Chroma Vector DB load karnyasaṭhi helper function.
+    """
     if os.path.exists(db_path):
         embeddings = get_embeddings()
         return Chroma(
