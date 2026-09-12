@@ -1,17 +1,18 @@
-.env
-.env.*
-!.env.example
-
-__pycache__/
-*.pyc
-
-.venv/
+# Virtual Environment
 venv/
+.venv/
 env/
 
+# Vector Databases (Heavy In-Memory Folders)
 chroma_db/
-*.db
+faiss_db/
+*.index
 
-.ipynb_checkpoints/
+# Mothe Books & Files
+*.pdf
+*.epub
+*.docx
+uploads/
 
-.vscode/
+# Environment Keys
+.env
