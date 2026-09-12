@@ -2,16 +2,17 @@ import os
 import gc
 from dotenv import load_dotenv
 
-# Lightweight packages
+# Lightweight packages (DeprecationWarning मुक्त)
 from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
-from langchain_chroma import Chroma  # Community import aevaji direct langchain_chroma
+from langchain_chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
-# 1. Initialize Embeddings
+# 1. Initialize Embeddings (max_retries add kela ahe 429 Error saṭhi)
 embedding_model = MistralAIEmbeddings(
-    model="mistral-embed"
+    model="mistral-embed",
+    max_retries=5
 )
 
 # 2. Load Vectorstore (ChromaDB)
@@ -20,16 +21,19 @@ vectorstore = Chroma(
     embedding_function=embedding_model
 )
 
-# 3. Memory-friendly Similarity Retriever (MMR aevaji similarity)
+# 3. Memory-friendly Retriever (k=2 karun API load kammi kela)
 retriever = vectorstore.as_retriever(
     search_type="similarity",
-    search_kwargs={"k": 3}  # Top 3 chunks kafi ahet RAM save karnyasathi
+    search_kwargs={"k": 2}
 )
 
-# 4. Initialize LLM Model
-llm = ChatMistralAI(model="mistral-small-latest")
+# 4. LLM Setup (max_retries=5 sobat)
+llm = ChatMistralAI(
+    model="mistral-small-latest",
+    max_retries=5
+)
 
-# 5. Prompt Template Setup
+# 5. Prompt Template
 prompt = ChatPromptTemplate.from_messages(
     [
         (
@@ -44,20 +48,15 @@ say: "I could not find the answer in the document."
         ),
         (
             "human",
-            """Context:
-{context}
-
-Question:
-{question}
-"""
+            "Context:\n{context}\n\nQuestion:\n{question}"
         )
     ]
 )
 
-print("RAG system created successfully!")
+print("RAG CLI System Ready!")
 print("Press 0 to exit")
 
-# 6. Optimized Loop
+# 6. Optimized Interactive Loop
 while True:
     try:
         query = input("\nYou: ").strip()
@@ -69,12 +68,10 @@ while True:
         if not query:
             continue
 
-        # Document Retrieval
+        # Retrieval & Prompt Invocation
         docs = retriever.invoke(query)
-
         context = "\n\n".join([doc.page_content for doc in docs])
 
-        # Prompt Creation & LLM Call
         final_prompt = prompt.invoke({
             "context": context,
             "question": query
@@ -84,7 +81,7 @@ while True:
 
         print(f"\nAI: {response.content}")
 
-        # Explicit Memory Cleanup inside continuous loop
+        # Explicit Memory Cleanup
         del docs
         del context
         del final_prompt
