@@ -9,6 +9,10 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_mistralai import MistralAIEmbeddings, ChatMistralAI
 from langchain_community.vectorstores import Chroma
 from langchain_core.prompts import ChatPromptTemplate
+from create_database import build_vector_db
+
+# Example call:
+# build_vector_db("my_book.pdf")
 
 load_dotenv()
 
